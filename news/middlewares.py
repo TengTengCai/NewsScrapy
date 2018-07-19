@@ -4,8 +4,17 @@
 #
 # See documentation in:
 # https://doc.scrapy.org/en/latest/topics/spider-middleware.html
+import time
+from logging import getLogger
 
 from scrapy import signals
+from scrapy.http import HtmlResponse
+from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver import DesiredCapabilities
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 
 class NewsSpiderMiddleware(object):
@@ -78,6 +87,7 @@ class NewsDownloaderMiddleware(object):
         # - or return a Request object
         # - or raise IgnoreRequest: process_exception() methods of
         #   installed downloader middleware will be called
+
         return None
 
     def process_response(self, request, response, spider):
@@ -101,3 +111,32 @@ class NewsDownloaderMiddleware(object):
 
     def spider_opened(self, spider):
         spider.logger.info('Spider opened: %s' % spider.name)
+
+
+class SeleniumMiddleware(object):
+    def __init__(self, timeout=30):
+        self.logger = getLogger(__name__)
+        self.timeout = timeout
+        dcap = dict(DesiredCapabilities.PHANTOMJS)
+        dcap["phantomjs.page.settings.userAgent"] = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.87 Safari/537.36"
+        self.browser = webdriver.PhantomJS(desired_capabilities=dcap)
+        self.browser.set_window_size(1400, 700)
+        self.browser.set_page_load_timeout(self.timeout)
+        self.wait = WebDriverWait(self.browser, self.timeout)
+
+    def __del__(self):
+        self.browser.close()
+
+    def process_request(self, request, spider):
+        self.logger.debug('PhantomJS is Starting')
+        try:
+            self.browser.implicitly_wait(30)
+            self.browser.get(request.url)
+            # js = "var q=document.documentElement.scrollTop=10000"
+            # self.browser.execute_script(js)
+            body = self.browser.page_source
+            self.logger.debug(body)
+            return HtmlResponse(url=request.url, status=200, body=body,
+                                request=request, encoding='utf-8')
+        except TimeoutException:
+            return HtmlResponse(url=request.url, status=500, request=request)
